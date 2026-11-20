@@ -49,6 +49,8 @@ SUSPECT_COLS = [
 ]
 
 
+# Function: Builds a direction-independent road ID from OSM endpoints and edge key.
+# Ensures reverse representations of the same physical road share one identifier.
 def canon(df):
     u, v, k = df["u"].to_numpy(), df["v"].to_numpy(), df["key"].to_numpy()
     return (pd.Series(np.minimum(u, v)).astype(str) + "_"
@@ -56,6 +58,8 @@ def canon(df):
             + pd.Series(k).astype(str)).to_numpy()
 
 
+# Function: Reads one event CSV and derives its city and cyclone identifiers.
+# Aggregates sampled observations into one record per canonical road segment.
 def load(path):
     df = pd.read_csv(path, low_memory=False)
     df["road_id"] = canon(df)
@@ -70,6 +74,8 @@ def load(path):
 
 
 # ---------------------------------------------------------------- 1. persistence
+# Function: Compares flooded-road sets across cyclone events using Jaccard overlap.
+# Checks whether flood labels recur at the same locations more often than chance.
 def persistence(city, events):
     print(f"\n[1] cross-event persistence — {city}")
     print("    Jaccard of flooded-segment sets vs the independence baseline")
@@ -107,6 +113,8 @@ def persistence(city, events):
 
 
 # ---------------------------------------------------------------- 2. artifacts
+# Function: Measures flood rates across imperviousness groups while controlling for HAND.
+# Looks for a Sentinel-1 building layover or shadow signature in the flood labels.
 def artifact_signature(city, cyc, seg):
     if not {"impervious_frac", "hand_m"} <= set(seg.columns):
         return
@@ -140,6 +148,8 @@ def artifact_signature(city, cyc, seg):
 
 
 # ---------------------------------------------------------------- 3. nodata
+# Function: Checks suspect feature columns for zero values, missingness and spatial noise.
+# Flags patterns suggesting masked or coarse-resolution data artefacts.
 def nodata_audit(city, cyc, seg):
     print(f"\n[3] nodata / resolution audit — {city}/{cyc}")
     print(f"    {'column':<28}{'%exactly 0':>12}{'%NaN':>8}{'HF var share':>14}")
@@ -171,6 +181,8 @@ def nodata_audit(city, cyc, seg):
     print("    mean the column is carrying mask edges, not measurements.")
 
 
+# Function: Parses command-line options and runs the script's complete workflow.
+# Coordinates input loading, processing, model execution or reporting.
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv", required=True)
