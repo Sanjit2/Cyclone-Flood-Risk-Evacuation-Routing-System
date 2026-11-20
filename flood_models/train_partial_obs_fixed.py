@@ -140,6 +140,8 @@ FRACTIONS = (0.10, 0.25, 0.50, 0.75)
 REGIMES = ("random", "block")
 
 
+# Function: Loads saved event graphs and groups them by city and cyclone.
+# Builds the in-memory event collection used by the partial-observation experiments.
 def load_events(root):
     out = defaultdict(dict)
     for p in sorted(glob.glob(os.path.join(root, "*.pt"))):
@@ -154,6 +156,8 @@ def load_events(root):
 # [7] continuous-column inference — replaces the hardcoded CONT_IDX
 # ----------------------------------------------------------------------
 
+# Function: Identifies continuous feature columns from their distinct values across observed graph nodes.
+# Excludes binary and one-hot indicator columns from continuous-feature processing.
 def infer_cont_idx(all_graphs, max_categories=2):
     """Continuous columns = those with more than `max_categories` distinct
     values over every valid (mask_flood) node, pooled across every event.
@@ -201,6 +205,8 @@ def infer_cont_idx(all_graphs, max_categories=2):
 # [4] one symmetric edge set for model and baselines alike
 # ----------------------------------------------------------------------
 
+# Function: Adds reverse directions to graph edges and removes self-loops.
+# Returns a bidirectional adjacency representation for message passing.
 def symmetrize(edge_index):
     ei = torch.cat([edge_index, edge_index.flip(0)], dim=1)
     keep = ei[0] != ei[1]
@@ -210,6 +216,8 @@ def symmetrize(edge_index):
     return ei[:, torch.as_tensor(np.sort(uniq))]
 
 
+# Function: Converts the graph edge index into a sparse adjacency matrix.
+# Combines duplicate connections and prepares the matrix for propagation operations.
 def sparse_adj(edge_index, n):
     s, d = edge_index[0].numpy(), edge_index[1].numpy()
     A = csr_matrix((np.ones(len(s), np.float32), (d, s)), shape=(n, n))
@@ -222,6 +230,8 @@ def sparse_adj(edge_index, n):
 # [2] coverage simulation — random and contiguous
 # ----------------------------------------------------------------------
 
+# Function: Selects which valid nodes have observed flood labels under a chosen masking regime.
+# Supports random or spatially blocked observation patterns at a requested coverage rate.
 def sample_observed(A, valid_idx, frac, n, regime, rng, n_seeds=40):
     """Return a boolean array of OBSERVED nodes, a subset of valid_idx."""
     target = int(round(frac * len(valid_idx)))
@@ -265,6 +275,8 @@ def sample_observed(A, valid_idx, frac, n, regime, rng, n_seeds=40):
 # ----------------------------------------------------------------------
 
 class SageLabel(nn.Module):
+    # Function: Initializes the constrained union-find data structure for spatial clustering.
+    # Stores component sizes, bounding boxes and the permitted merge constraints.
     def __init__(self, in_dim, hidden=128, layers=3, dropout=0.3, aggr="mean"):
         super().__init__()
         self.convs = nn.ModuleList()
@@ -277,6 +289,8 @@ class SageLabel(nn.Module):
         self.head = nn.Linear(hidden, 1)
         self.dropout = dropout
 
+    # Function: Runs node features through the graph-convolution and normalization layers.
+    # Returns the model's flood and, where applicable, depth predictions.
     def forward(self, x, edge_index, y, label_mask):
         lab = (y.float() * label_mask.float()).unsqueeze(1)
         h = torch.cat([x, lab, label_mask.float().unsqueeze(1)], dim=1)
@@ -290,6 +304,8 @@ class SageLabel(nn.Module):
 # Baselines — all on the symmetrised graph now
 # ----------------------------------------------------------------------
 
+# Function: Propagates known flood labels through the graph adjacency structure.
+# Estimates labels for unobserved nodes using iterative neighbour information.
 def label_propagation(A, y, obs, n, iters=30, alpha=0.9):
     deg = np.asarray(A.sum(1)).ravel().clip(min=1)
     seed = float(y[obs].mean()) if obs.any() else 0.0
@@ -301,6 +317,8 @@ def label_propagation(A, y, obs, n, iters=30, alpha=0.9):
     return f
 
 
+# Function: Builds neighbour-derived features using only the observed flood labels.
+# Summarizes nearby positive-label fractions and observed-neighbour coverage.
 def neighbour_label_features(A, y, obs, n):
     """[frac1, frac2, obs_share_1hop, obs_count_1hop] from OBSERVED nodes only."""
     om = obs.astype(np.float32)
@@ -322,6 +340,8 @@ def neighbour_label_features(A, y, obs, n):
 # Training
 # ----------------------------------------------------------------------
 
+# Function: Trains the GraphSAGE label-completion model on observed training labels.
+# Selects model parameters using validation graphs and returns evaluation outputs.
 def train_sage(train_graphs, val_graphs, in_dim, args, device):
     model = SageLabel(in_dim, args.hidden, args.layers, args.dropout, args.aggr).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
@@ -395,6 +415,8 @@ def train_sage(train_graphs, val_graphs, in_dim, args, device):
     return model, best
 
 
+# Function: Executes the partial-observation experiment from data loading through evaluation.
+# Compares feature-only, label-propagation and GraphSAGE approaches across settings.
 def run(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.manual_seed(args.seed); np.random.seed(args.seed); random.seed(args.seed)
@@ -442,6 +464,8 @@ def run(args):
         sc = StandardScaler().fit(np.concatenate(
             [g.x[g.mask_flood.bool()][:, CONT_IDX].numpy() for g in tr_raw]))
 
+        # Function: Combines a collection of graph objects into the packed representation expected by the model.
+        # Prepares feature, label and mask tensors for batched inference or training.
         def pack(gs):
             out = []
             for g in gs:
@@ -597,6 +621,8 @@ def run(args):
     return results
 
 
+# Function: Defines and parses the command-line arguments for the training experiment.
+# Returns the configured paths, hyperparameters and evaluation options.
 def parse_args(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("--data-root", default="/content/drive/MyDrive/Cyclone_Dataset/graphs_flow")
