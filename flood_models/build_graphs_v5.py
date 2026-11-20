@@ -118,6 +118,8 @@ FNAME_RE = re.compile(r"(?P<city>[a-z]+)_(?P<cyclone>[a-z]+)\.csv$")
 # 1. LOAD
 # ================================================================
 
+# Function: Normalizes the endpoint order in a road identifier.
+# Merges reverse-direction representations of the same physical road segment.
 def canonicalize_road_id(road_id):
     parts = str(road_id).split("_")
     if len(parts) < 3:
@@ -132,6 +134,8 @@ def canonicalize_road_id(road_id):
     return f"{u}_{v}_{k}"
 
 
+# Function: Finds and loads all valid city-cyclone input CSV files.
+# Standardizes identifiers and column names before combining the event data.
 def load_all_csvs(input_dir=INPUT_DIR):
     paths = sorted(glob.glob(os.path.join(input_dir, "*.csv")))
     if not paths:
@@ -175,6 +179,8 @@ def load_all_csvs(input_dir=INPUT_DIR):
     return all_df
 
 
+# Function: Aggregates sampled observations into one row per city, cyclone and road segment.
+# Applies the configured mean, minimum and maximum rules to features and labels.
 def aggregate_to_segments(df):
     agg = {c: rule for c, rule in AGG_RULES.items() if c in df.columns}
     missing = [c for c in AGG_RULES if c not in df.columns]
@@ -194,11 +200,15 @@ def aggregate_to_segments(df):
 # 2. LINE GRAPH + EDGE ATTRIBUTES
 # ================================================================
 
+# Function: Extracts the two OSM intersection identifiers from a road ID.
+# Provides the endpoints needed to build road-segment adjacency.
 def parse_endpoints(road_id):
     parts = str(road_id).split("_")
     return (parts[0], parts[1]) if len(parts) >= 2 else (None, None)
 
 
+# Function: Creates a line graph in which each road segment is a node.
+# Connects segments sharing an intersection and calculates each node's degree.
 def build_line_graph(segment_ids):
     idx_of = {rid: i for i, rid in enumerate(segment_ids)}
 
@@ -241,6 +251,8 @@ def build_line_graph(segment_ids):
     return edges, degree
 
 
+# Function: Calculates attributes for each directed connection between neighbouring roads.
+# Encodes HAND difference, elevation-rank difference and geographic separation.
 def build_edge_attr(edge_index, hand, elev_rank, lon, lat):
     s, d = edge_index[0], edge_index[1]
     d_hand = (hand[d] - hand[s]).astype(np.float32)
@@ -254,6 +266,8 @@ def build_edge_attr(edge_index, hand, elev_rank, lon, lat):
     return np.vstack([d_hand, d_elev, dist]).T
 
 
+# Function: Computes one-hop summaries of neighbouring nodes' HAND and elevation rank.
+# Adds local terrain context to each road segment or flood unit.
 def neighbourhood_features(edge_index, n_nodes, hand, elev_rank):
     hand_min = hand.copy().astype(np.float64)
     hand_sum = np.zeros(n_nodes)
@@ -276,6 +290,8 @@ def neighbourhood_features(edge_index, n_nodes, hand, elev_rank):
 # 3. LABELS  (hurdle: flood head + depth head)
 # ================================================================
 
+# Function: Creates flood-classification and flood-depth targets from the event data.
+# Builds separate validity masks so missing or untrusted labels are excluded.
 def build_labels(ev):
     depth = ev["flood_depth_m"].fillna(0).to_numpy()
     sar   = ev["sar_flood_binary"].fillna(0).to_numpy()
@@ -297,6 +313,8 @@ def build_labels(ev):
 # 4. FEATURES
 # ================================================================
 
+# Function: Converts OSM highway categories into a fixed set of one-hot features.
+# Keeps the feature dimensions consistent even when a city lacks a road category.
 def encode_highway(ev):
     cols = [f"hw_{k}" for k in HIGHWAY_KEEP + ["other"]]
     if "highway_type" not in ev.columns:
@@ -314,6 +332,8 @@ def encode_highway(ev):
     return dummies[cols]
 
 
+# Function: Checks candidate features for missing columns and near-constant values across events.
+# Keeps useful varying features and removes redundant event-level constants.
 def report_constants(seg, candidates):
     print("\nSpatial variance within graphs (std across nodes, "
           "averaged over events):")
@@ -349,6 +369,8 @@ def report_constants(seg, candidates):
 # 5. MAIN
 # ================================================================
 
+# Function: Parses command-line options and runs the script's complete workflow.
+# Coordinates input loading, processing, model execution or reporting.
 def main():
     print("Loading CSVs...")
     df = load_all_csvs()
