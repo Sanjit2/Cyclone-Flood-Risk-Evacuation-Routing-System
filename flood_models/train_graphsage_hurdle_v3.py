@@ -39,6 +39,8 @@ from torch_geometric.nn import SAGEConv
 HERE = os.path.dirname(__file__)
 
 
+# Function: Defines and parses the command-line arguments for the training experiment.
+# Returns the configured paths, hyperparameters and evaluation options.
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--graphs-dir", default=os.path.join(HERE, "graphs_units_v1"))
@@ -80,6 +82,8 @@ stems = sorted(all_graphs.keys())
 print(f"{len(stems)} events total: {stems}")
 
 
+# Function: Creates feature, flood-label and depth-label masks for a graph.
+# Ensures each prediction head trains only on valid observations.
 def build_masks(data):
     feat_valid = ~torch.isnan(data.x).any(dim=1)
     cls_valid = feat_valid & ~torch.isnan(data.y_flooded)
@@ -93,6 +97,8 @@ for d in all_graphs.values():
 
 
 class GraphSAGEHurdle(torch.nn.Module):
+    # Function: Initializes the constrained union-find data structure for spatial clustering.
+    # Stores component sizes, bounding boxes and the permitted merge constraints.
     def __init__(self, in_channels, hidden_channels=64, num_layers=3, dropout=0.2):
         super().__init__()
         self.convs = torch.nn.ModuleList()
@@ -110,6 +116,8 @@ class GraphSAGEHurdle(torch.nn.Module):
             torch.nn.Dropout(dropout), torch.nn.Linear(hidden_channels // 2, 1))
         self.dropout = dropout
 
+    # Function: Runs node features through the graph-convolution and normalization layers.
+    # Returns the model's flood and, where applicable, depth predictions.
     def forward(self, x, edge_index):
         for conv, norm in zip(self.convs, self.norms):
             x = F.dropout(F.relu(norm(conv(x, edge_index))), p=self.dropout, training=self.training)
@@ -119,6 +127,8 @@ class GraphSAGEHurdle(torch.nn.Module):
 FOCAL_ALPHA, FOCAL_GAMMA = 0.75, 2.0
 
 
+# Function: Computes class-imbalance-aware focal loss from flood logits and binary targets.
+# Down-weights easy examples so training focuses more on difficult cases.
 def focal_loss(logits, targets, alpha=FOCAL_ALPHA, gamma=FOCAL_GAMMA):
     bce = F.binary_cross_entropy_with_logits(logits, targets, reduction="none")
     pt = torch.exp(-bce)
@@ -126,6 +136,8 @@ def focal_loss(logits, targets, alpha=FOCAL_ALPHA, gamma=FOCAL_GAMMA):
     return (alpha_t * (1 - pt) ** gamma * bce).mean()
 
 
+# Function: Calculates classification metrics from masked flood predictions.
+# Reports precision-recall performance while handling folds with no positive labels.
 def cls_metrics(logits, true, mask):
     probs = torch.sigmoid(logits[mask]).detach().cpu().numpy()
     t = true[mask].detach().cpu().numpy()
@@ -133,6 +145,8 @@ def cls_metrics(logits, true, mask):
     return pr
 
 
+# Function: Runs one training or evaluation epoch over the supplied graph batches.
+# Computes losses, updates model parameters when training and collects predictions.
 def run_epoch(model, loader, optimizer, train):
     model.train() if train else model.eval()
     all_logit, all_true, all_mask = [], [], []
@@ -155,6 +169,8 @@ def run_epoch(model, loader, optimizer, train):
     return cls_metrics(torch.cat(all_logit), torch.cat(all_true), torch.cat(all_mask))
 
 
+# Function: Runs one held-out-event fold of the rotating leave-one-event-out experiment.
+# Prepares training data, fits the model and evaluates it on the held-out event.
 def run_fold(test_stem, fold_idx, n_folds):
     d_test_raw = all_graphs[test_stem]
     train_stems = [s for s in stems if s != test_stem]
@@ -169,6 +185,8 @@ def run_fold(test_stem, fold_idx, n_folds):
     feat_std = x_valid.std(dim=0)
     feat_std[feat_std == 0] = 1.0
 
+    # Function: Clones and preprocesses a graph using the fold's feature-scaling statistics.
+    # Cleans feature and target tensors before they are passed to the model.
     def prep(d_raw):
         d = d_raw.clone()
         d.x = torch.nan_to_num((d_raw.x - feat_mean) / feat_std, nan=0.0)
@@ -268,6 +286,8 @@ print(f"ROTATING LEAVE-ONE-EVENT-OUT — {len(results)} independent folds")
 print("=" * 100)
 print(df.to_string(index=False))
 
+# Function: Formats the mean and standard deviation of a results column.
+# Returns a readable summary or a fallback when no values are available.
 def summarize(col):
     v = df[col].dropna()
     return f"{v.mean():.4f} +/- {v.std():.4f}" if len(v) else "n/a"
