@@ -51,6 +51,8 @@ OUT_DIR = os.path.join(HERE, "risk_scores")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 
+# Function: Parses command-line options and runs the script's complete workflow.
+# Coordinates input loading, processing, model execution or reporting.
 def main():
     with open(os.path.join(GRAPHS_DIR, "manifest.json")) as f:
         manifest = json.load(f)
