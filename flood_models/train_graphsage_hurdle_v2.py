@@ -75,6 +75,8 @@ np.random.seed(42)
 HERE = os.path.dirname(__file__)
 
 
+# Function: Defines and parses the command-line arguments for the training experiment.
+# Returns the configured paths, hyperparameters and evaluation options.
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--graphs-dir", default=os.path.join(HERE, "graphs_v5"))
@@ -142,6 +144,8 @@ for d, nm in zip(train_graphs + test_graphs, train_names + test_names):
 #     depth stays gated to trustworthy rows only.
 # ============================================================
 
+# Function: Creates feature, flood-label and depth-label masks for a graph.
+# Ensures each prediction head trains only on valid observations.
 def build_masks(data):
     feat_valid = ~torch.isnan(data.x).any(dim=1)
     cls_label_valid = ~torch.isnan(data.y_flooded)
@@ -167,6 +171,8 @@ feat_std = train_x_valid.std(dim=0)
 feat_std[feat_std == 0] = 1.0
 
 
+# Function: Standardizes graph node features using the configured training statistics.
+# Replaces invalid numeric values so the model receives finite inputs.
 def normalize_and_clean(data):
     x = (data.x - feat_mean) / feat_std
     x = torch.nan_to_num(x, nan=0.0)
@@ -199,6 +205,8 @@ test_loader = DataLoader(test_graphs, batch_size=1, shuffle=False)
 # ============================================================
 
 class GraphSAGEHurdle(torch.nn.Module):
+    # Function: Initializes the constrained union-find data structure for spatial clustering.
+    # Stores component sizes, bounding boxes and the permitted merge constraints.
     def __init__(self, in_channels, hidden_channels=64, num_layers=3, dropout=0.2):
         super().__init__()
         self.convs = torch.nn.ModuleList()
@@ -224,6 +232,8 @@ class GraphSAGEHurdle(torch.nn.Module):
         )
         self.dropout = dropout
 
+    # Function: Runs node features through the graph-convolution and normalization layers.
+    # Returns the model's flood and, where applicable, depth predictions.
     def forward(self, x, edge_index):
         for conv, norm in zip(self.convs, self.norms):
             x = conv(x, edge_index)
@@ -276,6 +286,8 @@ FOCAL_GAMMA = 2.0
 DEPTH_LOSS_WEIGHT = 1.0
 
 
+# Function: Computes class-imbalance-aware focal loss from flood logits and binary targets.
+# Down-weights easy examples so training focuses more on difficult cases.
 def focal_loss(logits, targets, alpha=FOCAL_ALPHA, gamma=FOCAL_GAMMA):
     bce = F.binary_cross_entropy_with_logits(logits, targets, reduction="none")
     pt = torch.exp(-bce)
@@ -283,6 +295,8 @@ def focal_loss(logits, targets, alpha=FOCAL_ALPHA, gamma=FOCAL_GAMMA):
     return (alpha_t * (1 - pt) ** gamma * bce).mean()
 
 
+# Function: Converts masked flood logits into probabilities and calculates classification metrics.
+# Evaluates predictions only where the ground-truth flood label is valid.
 def compute_metrics(cls_logit, true_flooded, mask):
     probs = torch.sigmoid(cls_logit[mask]).detach().cpu().numpy()
     true = true_flooded[mask].detach().cpu().numpy()
@@ -299,6 +313,8 @@ def compute_metrics(cls_logit, true_flooded, mask):
     return pr_auc, recall, precision
 
 
+# Function: Runs one training or evaluation epoch over the supplied graph batches.
+# Computes losses, updates model parameters when training and collects predictions.
 def run_epoch(loader, train=True):
     model.train() if train else model.eval()
     total_loss, total_nodes = 0.0, 0
@@ -397,6 +413,8 @@ print("saved ->", curves_path)
 # Evaluation on held-out cyclones
 # ============================================================
 
+# Function: Evaluates the trained model on one or more graph datasets.
+# Returns aggregate and per-event classification and depth metrics.
 def evaluate(loader, names, cls_threshold=0.5):
     model.eval()
     results = []
