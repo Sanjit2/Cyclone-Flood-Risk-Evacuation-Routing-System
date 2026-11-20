@@ -66,6 +66,8 @@ DERIVED_FEATURES = ["elev_rank", "degree", "hand_min_1hop", "hand_mean_1hop",
                     "elev_rank_mean_1hop"]
 
 
+# Function: Computes one-hop summaries of neighbouring nodes' HAND and elevation rank.
+# Adds local terrain context to each road segment or flood unit.
 def neighbourhood_features(edge_index, n_nodes, hand, elev_rank):
     hand_min = hand.copy().astype(np.float64)
     hand_sum = np.zeros(n_nodes)
@@ -84,6 +86,8 @@ def neighbourhood_features(edge_index, n_nodes, hand, elev_rank):
     return hand_min, hand_mean, elev_mean
 
 
+# Function: Parses command-line options and runs the script's complete workflow.
+# Coordinates input loading, processing, model execution or reporting.
 def main():
     unit_csvs = sorted(glob.glob(os.path.join(UNITS_DIR, "*_unit_graph.npz")))
     cities = [os.path.basename(p)[:-len("_unit_graph.npz")] for p in unit_csvs]
