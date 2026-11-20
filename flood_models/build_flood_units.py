@@ -120,6 +120,8 @@ EARTH_R = 6371000.0
 # ==========================================================================
 # I/O and segment construction
 # ==========================================================================
+# Function: Loads one city-cyclone CSV and verifies the required columns are present.
+# Fills missing city and cyclone identifiers from the filename when necessary.
 def load_event(path):
     df = pd.read_csv(path, low_memory=False)
     need = {"u", "v", "key", "lon", "lat", "sar_flood_binary"}
@@ -133,6 +135,8 @@ def load_event(path):
     return df
 
 
+# Function: Creates a canonical undirected identifier from each OSM road's endpoints and key.
+# Returns the ID together with normalized endpoint values for graph construction.
 def canonical_road_id(df):
     """Undirected segment id: (min(u,v), max(u,v), key).
 
@@ -151,6 +155,8 @@ def canonical_road_id(df):
     ).to_numpy(), lo, hi
 
 
+# Function: Collapses sampled points into one record per physical road segment.
+# Aggregates terrain, rainfall, geometry and flood labels using the configured rules.
 def points_to_segments(df):
     """Collapse sample points to one row per canonical road segment."""
     rid, lo, hi = canonical_road_id(df)
@@ -184,6 +190,8 @@ def points_to_segments(df):
     return seg
 
 
+# Function: Projects longitude and latitude into a local metre-based coordinate system.
+# Provides planar coordinates for distance and spatial-span calculations.
 def local_xy(lon, lat):
     """Equirectangular projection to metres, accurate enough over one city."""
     lat0 = np.deg2rad(np.mean(lat))
@@ -195,6 +203,8 @@ def local_xy(lon, lat):
 # ==========================================================================
 # Contiguity: two segments are neighbours if they share an intersection
 # ==========================================================================
+# Function: Builds pairs of road segments that share an OSM intersection.
+# Returns segment-index arrays describing the road network's local connectivity.
 def build_adjacency(seg):
     """Return (src, dst) index arrays over seg rows. No network calls — the
     topology is already encoded in the OSM u/v node ids in the CSV."""
@@ -228,6 +238,8 @@ class ConstrainedUF:
     ridge line, which is not what "nearby segments" means.
     """
 
+    # Function: Initializes the constrained union-find data structure for spatial clustering.
+    # Stores component sizes, bounding boxes and the permitted merge constraints.
     def __init__(self, x, y, max_size, max_span_m):
         n = len(x)
         self.p = np.arange(n)
@@ -237,6 +249,8 @@ class ConstrainedUF:
         self.max_size = max_size
         self.max_span = max_span_m
 
+    # Function: Finds the representative root of a union-find component.
+    # Applies path compression to speed up later connectivity operations.
     def find(self, a):
         p = self.p
         root = a
@@ -246,6 +260,8 @@ class ConstrainedUF:
             p[a], a = root, p[a]
         return root
 
+    # Function: Checks whether merging two components respects size and spatial-span limits.
+    # Prevents clusters from becoming too large or geographically stretched.
     def _would_fit(self, ra, rb):
         if self.sz[ra] + self.sz[rb] > self.max_size:
             return False
@@ -256,6 +272,8 @@ class ConstrainedUF:
                 return False
         return True
 
+    # Function: Merges two union-find components when the configured constraints allow it.
+    # Updates component metadata and reports whether a merge was performed.
     def union(self, a, b, force=False):
         ra, rb = self.find(a), self.find(b)
         if ra == rb:
@@ -276,6 +294,8 @@ class ConstrainedUF:
 # ==========================================================================
 # Clustering methods
 # ==========================================================================
+# Function: Assigns road-segment midpoints to fixed-size spatial grid cells.
+# Returns a unit label for each segment based on its cell location.
 def cluster_grid(seg, cell_m):
     x, y = local_xy(seg["lon"].to_numpy(), seg["lat"].to_numpy())
     gx = np.floor(x / cell_m).astype(np.int64)
@@ -285,6 +305,8 @@ def cluster_grid(seg, cell_m):
     return labels
 
 
+# Function: Clusters adjacent road segments using feature similarity and spatial contiguity.
+# Uses a minimum spanning tree and constrained merges to form compact regions.
 def cluster_region(seg, src, dst, feature_cols, max_size, min_size, max_span_m,
                    verbose=True):
     """MST-based spatially-constrained regionalization.
@@ -344,6 +366,8 @@ def cluster_region(seg, src, dst, feature_cols, max_size, min_size, max_span_m,
 # ==========================================================================
 # Aggregation onto the fixed partition
 # ==========================================================================
+# Function: Aggregates segment-level features into length-weighted flood-unit attributes.
+# Computes unit labels and summary values while preserving event-level information.
 def aggregate_units(seg, labels, feature_cols):
     """Length-weighted aggregation of every feature onto units."""
     df = seg.copy()
@@ -388,6 +412,8 @@ def aggregate_units(seg, labels, feature_cols):
     return units
 
 
+# Function: Builds graph connections between flood units that touch in the segment adjacency graph.
+# Returns a deduplicated unit-level edge index for graph learning.
 def unit_edge_index(labels, src, dst, n_units):
     """Contiguity graph over units, inherited from segment adjacency."""
     a, b = labels[src], labels[dst]
@@ -405,6 +431,8 @@ def unit_edge_index(labels, src, dst, n_units):
 # ==========================================================================
 # Diagnostics — is the grouping actually keeping the signal?
 # ==========================================================================
+# Function: Summarizes unit sizes, flood-label rates and feature characteristics.
+# Reports diagnostics used to assess the quality and class balance of the grouping.
 def diagnostics(seg, labels, feature_cols):
     n, k = len(seg), labels.max() + 1
     sizes = np.bincount(labels)
@@ -458,6 +486,8 @@ def diagnostics(seg, labels, feature_cols):
 # ==========================================================================
 # Optional: does the grouping actually help?
 # ==========================================================================
+# Function: Compares segment-level and aggregated-unit modelling under a spatial holdout.
+# Measures whether the chosen mapping units improve predictive performance fairly.
 def evaluate_grouping(seg, labels, feature_cols, block_m=2000.0, test_frac=0.25,
                       seed=0, label_rule="any", event_col=None, holdout=None):
     """Fair segment-level comparison of segment-model vs unit-model.
@@ -519,6 +549,8 @@ def evaluate_grouping(seg, labels, feature_cols, block_m=2000.0, test_frac=0.25,
     pos_w = (1 - base) / max(base, 1e-9)
     sw = np.where(y == 1, pos_w, 1.0)
 
+    # Function: Fits a standardized logistic-regression baseline using weighted training samples.
+    # Returns predictions for the supplied evaluation features.
     def fit_predict(Xtr, ytr, wtr, Xte):
         sc = StandardScaler().fit(Xtr)
         lr = LogisticRegression(max_iter=2000).fit(sc.transform(Xtr), ytr,
@@ -566,6 +598,8 @@ def evaluate_grouping(seg, labels, feature_cols, block_m=2000.0, test_frac=0.25,
     idx = np.array([row_of[k] for k in seg_keys])
     p_lr_bc, p_gb_bc = p_lr_all[idx], p_gb_all[idx]
 
+    # Function: Computes evaluation metrics for a named model's predicted probabilities.
+    # Summarizes predictive quality on the held-out observations.
     def score(name, p):
         yt = y[te]
         return {
@@ -592,6 +626,8 @@ def evaluate_grouping(seg, labels, feature_cols, block_m=2000.0, test_frac=0.25,
     }
 
 
+# Function: Prints a readable summary of a grouping evaluation result.
+# Handles failed evaluations and displays the available metrics.
 def _print_eval(ev):
     if "error" in ev:
         print(f"  {ev['error']}")
@@ -611,6 +647,8 @@ def _print_eval(ev):
 # ==========================================================================
 # Main
 # ==========================================================================
+# Function: Parses command-line options and runs the script's complete workflow.
+# Coordinates input loading, processing, model execution or reporting.
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
